@@ -1,0 +1,12 @@
+app {
+    name: "orbit-demo"
+    version: "1.0.0"
+    targets: [
+        "dev",
+        "prod"
+    ]
+    limits {
+        memory: 512
+        cpu: 2.5
+    }
+}

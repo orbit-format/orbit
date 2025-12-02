@@ -1,0 +1,36 @@
+[workspace]
+members = [
+    "crates/orbit-core",
+    "crates/orbit-cli",
+    "crates/orbit-fmt",
+    "crates/orbit-tests",
+    "examples/load-config"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "BSD-3-Clause"
+authors = ["The Orbit Authors"]
+version = "0.1.0"
+rust-version = "1.91"
+
+[workspace.metadata]
+repository = "https://github.com/orbit-format/orbit"
+
+[workspace.metadata.docs.rs]
+all-features = true
+
+[workspace.metadata.release]
+sign-commit = true
+sign-tag = true
+
+[workspace.dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+indexmap = { version = "2.6", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9.33"
+rmp-serde = "1.1"
+thiserror = "2.0.17"
