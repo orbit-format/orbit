@@ -33,3 +33,6 @@ pub fn parse_with_recovery(source: &str) -> Result<ParseReport, CoreError> {
     let parser = Parser::from_source(source)?;
     Ok(parser.parse_document_with_recovery())
 }
+
+#[cfg(target_arch = "wasm32")]
+mod wasm;

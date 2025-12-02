@@ -1,6 +1,7 @@
 use crate::ast::Span;
+use serde::Serialize;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize)]
 #[error("runtime error at byte range {span:?}: {message}")]
 pub struct RuntimeError {
     pub message: String,

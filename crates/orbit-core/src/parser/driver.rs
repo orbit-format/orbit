@@ -5,8 +5,11 @@ use crate::{
     value::number::OrbitNumber,
 };
 
+use serde::Serialize;
+
 use super::grammar::{Document, document};
 
+#[derive(Debug, Serialize)]
 pub struct ParseReport {
     pub document: Document,
     pub errors: Vec<ParseError>,

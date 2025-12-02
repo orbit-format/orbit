@@ -1,1 +1,5 @@
 target/
+bindings/orbit-js/node_modules/
+bindings/orbit-js/examples/node_modules/
+bindings/orbit-js/dist/
+bindings/orbit-js/wasm/orbit-core*.wasm

@@ -1,6 +1,7 @@
 use crate::ast::Span;
+use serde::Serialize;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize)]
 #[error("parse error at byte range {span:?}: {message}")]
 pub struct ParseError {
     pub message: String,

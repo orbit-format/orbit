@@ -1,6 +1,7 @@
 use crate::ast::Span;
+use serde::Serialize;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize)]
 #[error("lex error at byte range {span:?}: {message}")]
 pub struct LexError {
     pub message: String,

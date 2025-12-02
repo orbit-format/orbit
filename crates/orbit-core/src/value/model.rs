@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::number::OrbitNumber;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum OrbitValue {
     String(String),
     Number(OrbitNumber),

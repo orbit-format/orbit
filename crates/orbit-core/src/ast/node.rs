@@ -1,9 +1,10 @@
 use crate::value::number::OrbitNumber;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::span::Span;
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
 pub enum AstNode {
     Document {
         body: Vec<AstNode>,
@@ -38,7 +39,8 @@ impl AstNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
 pub enum ValueNode {
     String {
         value: String,
@@ -74,7 +76,7 @@ impl ValueNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ObjectEntry {
     pub key: String,
     pub value: ValueNode,
