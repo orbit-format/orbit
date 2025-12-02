@@ -1,0 +1,172 @@
+name: Release Artifacts
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core-wasm:
+    name: Build orbit-core Wasm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: wasm32-release
+
+      - name: Build orbit-core for wasm32
+        run: cargo build --locked --release -p orbit-core --target wasm32-unknown-unknown
+
+      - name: Package wasm artifact
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp target/wasm32-unknown-unknown/release/orbit_core.wasm artifacts/orbit-core-${{ github.event.release.tag_name }}.wasm
+
+      - name: Upload wasm artifact to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/orbit-core-${{ github.event.release.tag_name }}.wasm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cli-binaries:
+    name: Build CLI binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux-x86_64-gnu
+            target: x86_64-unknown-linux-gnu
+            archive_extension: tar.gz
+            binary_extension: ""
+          - os: ubuntu-latest
+            artifact_suffix: linux-x86_64-musl
+            target: x86_64-unknown-linux-musl
+            archive_extension: tar.gz
+            binary_extension: ""
+          - os: ubuntu-latest
+            artifact_suffix: linux-aarch64-gnu
+            target: aarch64-unknown-linux-gnu
+            archive_extension: tar.gz
+            binary_extension: ""
+          - os: windows-latest
+            artifact_suffix: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            archive_extension: zip
+            binary_extension: .exe
+          - os: windows-latest
+            artifact_suffix: windows-aarch64
+            target: aarch64-pc-windows-msvc
+            archive_extension: zip
+            binary_extension: .exe
+          - os: macos-13
+            artifact_suffix: macos-x86_64
+            target: x86_64-apple-darwin
+            archive_extension: tar.gz
+            binary_extension: ""
+          - os: macos-latest
+            artifact_suffix: macos-aarch64
+            target: aarch64-apple-darwin
+            archive_extension: tar.gz
+            binary_extension: ""
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Restore cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cli-${{ matrix.artifact_suffix }}
+
+      - name: Install Linux cross dependencies
+        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install MUSL tools
+        if: runner.os == 'Linux' && contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build orbit-cli
+        run: cargo build --locked --release -p orbit-cli --target ${{ matrix.target }}
+
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        id: package-unix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          bin_path="target/${{ matrix.target }}/release/orbit-cli${{ matrix.binary_extension }}"
+          staging="dist/orbit-${{ matrix.artifact_suffix }}"
+          archive_name="orbit-${{ github.event.release.tag_name }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          cp "$bin_path" "$staging/orbit"
+          chmod +x "$staging/orbit"
+          cp LICENSE "$staging/"
+          cp README.md "$staging/"
+          tar -czf "$archive_name" -C dist "$(basename "$staging")"
+          echo "archive_path=$archive_name" >> "$GITHUB_OUTPUT"
+
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        id: package-windows
+        shell: pwsh
+        run: |
+          $binPath = "target/${{ matrix.target }}/release/orbit-cli${{ matrix.binary_extension }}"
+          $staging = "dist/orbit-${{ matrix.artifact_suffix }}"
+          $archiveName = "orbit-${{ github.event.release.tag_name }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
+          if (Test-Path dist) { } else { New-Item -ItemType Directory -Force -Path dist | Out-Null }
+          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          $binaryName = "orbit${{ matrix.binary_extension }}"
+          Copy-Item $binPath (Join-Path $staging $binaryName)
+          Copy-Item LICENSE -Destination $staging | Out-Null
+          Copy-Item README.md -Destination $staging | Out-Null
+          if (Test-Path $archiveName) { Remove-Item $archiveName -Force }
+          $source = Join-Path $staging '*'
+          Compress-Archive -Path $source -DestinationPath $archiveName
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "archive_path=$archiveName"
+
+      - name: Upload CLI artifact to release (Unix)
+        if: runner.os != 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package-unix.outputs.archive_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload CLI artifact to release (Windows)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package-windows.outputs.archive_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
