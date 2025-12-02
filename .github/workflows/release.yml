@@ -4,12 +4,18 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build artifacts for'
+        required: true
 
 permissions:
   contents: write
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
 
 jobs:
   core-wasm:
@@ -29,19 +35,48 @@ jobs:
         with:
           shared-key: wasm32-release
 
+      - name: Check wasm artifact status
+        id: check-wasm
+        uses: actions/github-script@v7
+        env:
+          ASSET_NAME: orbit-core-${{ env.RELEASE_TAG }}.wasm
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            if (!tag) {
+              core.setFailed('RELEASE_TAG is not set. Provide a tag input when running manually.');
+              return;
+            }
+            const assetName = process.env.ASSET_NAME;
+            const { owner, repo } = context.repo;
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            } catch (error) {
+              core.setFailed(`Unable to load release ${tag}: ${error.message}`);
+              return;
+            }
+            const exists = release.data.assets.some(asset => asset.name === assetName);
+            core.info(exists ? `Asset ${assetName} already exists on release ${tag}.` : `Asset ${assetName} is missing and will be uploaded.`);
+            core.setOutput('missing', (!exists).toString());
+
       - name: Build orbit-core for wasm32
+        if: steps.check-wasm.outputs.missing == 'true'
         run: cargo build --locked --release -p orbit-core --target wasm32-unknown-unknown
 
       - name: Package wasm artifact
+        if: steps.check-wasm.outputs.missing == 'true'
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          cp target/wasm32-unknown-unknown/release/orbit_core.wasm artifacts/orbit-core-${{ github.event.release.tag_name }}.wasm
+          cp target/wasm32-unknown-unknown/release/orbit_core.wasm artifacts/orbit-core-${RELEASE_TAG}.wasm
 
       - name: Upload wasm artifact to release
+        if: steps.check-wasm.outputs.missing == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/orbit-core-${{ github.event.release.tag_name }}.wasm
+          files: artifacts/orbit-core-${{ env.RELEASE_TAG }}.wasm
+          tag_name: ${{ env.RELEASE_TAG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -101,23 +136,59 @@ jobs:
         with:
           shared-key: cli-${{ matrix.artifact_suffix }}
 
+      - name: Check CLI artifact status
+        id: check-cli
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_SUFFIX: ${{ matrix.artifact_suffix }}
+          ARCHIVE_EXTENSION: ${{ matrix.archive_extension }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            if (!tag) {
+              core.setFailed('RELEASE_TAG is not set. Provide a tag input when running manually.');
+              return;
+            }
+            const suffix = process.env.ARTIFACT_SUFFIX;
+            const extension = process.env.ARCHIVE_EXTENSION;
+            const assetName = `orbit-${tag}-${suffix}.${extension}`;
+            const { owner, repo } = context.repo;
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            } catch (error) {
+              core.setFailed(`Unable to load release ${tag}: ${error.message}`);
+              return;
+            }
+            const exists = release.data.assets.some(asset => asset.name === assetName);
+            core.info(exists ? `Asset ${assetName} already exists on release ${tag}.` : `Asset ${assetName} is missing and will be uploaded.`);
+            core.setOutput('missing', (!exists).toString());
+
       - name: Install Linux cross dependencies
-        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        if: steps.check-cli.outputs.missing == 'true' && runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Install MUSL tools
-        if: runner.os == 'Linux' && contains(matrix.target, 'musl')
+        if: steps.check-cli.outputs.missing == 'true' && runner.os == 'Linux' && contains(matrix.target, 'musl')
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
+      - name: Configure Linux aarch64 linker
+        if: steps.check-cli.outputs.missing == 'true' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+
       - name: Build orbit-cli
+        if: steps.check-cli.outputs.missing == 'true'
         run: cargo build --locked --release -p orbit-cli --target ${{ matrix.target }}
 
       - name: Package archive (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && steps.check-cli.outputs.missing == 'true'
         id: package-unix
         shell: bash
         run: |
@@ -125,7 +196,7 @@ jobs:
           mkdir -p dist
           bin_path="target/${{ matrix.target }}/release/orbit-cli${{ matrix.binary_extension }}"
           staging="dist/orbit-${{ matrix.artifact_suffix }}"
-          archive_name="orbit-${{ github.event.release.tag_name }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
+          archive_name="orbit-${RELEASE_TAG}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
           rm -rf "$staging"
           mkdir -p "$staging"
           cp "$bin_path" "$staging/orbit"
@@ -136,13 +207,13 @@ jobs:
           echo "archive_path=$archive_name" >> "$GITHUB_OUTPUT"
 
       - name: Package archive (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.check-cli.outputs.missing == 'true'
         id: package-windows
         shell: pwsh
         run: |
           $binPath = "target/${{ matrix.target }}/release/orbit-cli${{ matrix.binary_extension }}"
           $staging = "dist/orbit-${{ matrix.artifact_suffix }}"
-          $archiveName = "orbit-${{ github.event.release.tag_name }}-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
+          $archiveName = "orbit-$env:RELEASE_TAG-${{ matrix.artifact_suffix }}.${{ matrix.archive_extension }}"
           if (Test-Path dist) { } else { New-Item -ItemType Directory -Force -Path dist | Out-Null }
           if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
           New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -156,17 +227,19 @@ jobs:
           Add-Content -Path $env:GITHUB_OUTPUT -Value "archive_path=$archiveName"
 
       - name: Upload CLI artifact to release (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && steps.check-cli.outputs.missing == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.package-unix.outputs.archive_path }}
+          tag_name: ${{ env.RELEASE_TAG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload CLI artifact to release (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.check-cli.outputs.missing == 'true'
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.package-windows.outputs.archive_path }}
+          tag_name: ${{ env.RELEASE_TAG }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
