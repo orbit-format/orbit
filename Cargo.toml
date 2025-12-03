@@ -12,7 +12,7 @@ resolver = "2"
 edition = "2024"
 license = "BSD-3-Clause"
 authors = ["The Orbit Authors"]
-version = "0.1.0"
+version = "0.1.1"
 rust-version = "1.91"
 
 [workspace.metadata]
